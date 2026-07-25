@@ -1,5 +1,6 @@
 import chalk from "chalk";
-import type { ModelInfo, ProbeResult } from "../types.js";
+import { maskApiKey } from "../services/config-store.js";
+import type { ModelInfo, ProbeResult, SavedConnection } from "../types.js";
 
 const STATUS_WIDTH = 6;
 const DURATION_WIDTH = 10;
@@ -34,7 +35,7 @@ export function printFetchError(error: unknown): void {
 
 export function printProbeStart(modelCount: number): void {
   const layout = getTableLayout();
-  console.log(chalk.cyan(`\n开始并行探测 ${modelCount} 个模型（单模型最长等待 30 秒）...\n`));
+  console.log(chalk.cyan(`\n开始并行探测 ${modelCount} 个模型（单模型最长等待 60 秒）...\n`));
   printTableHeader(layout);
 }
 
@@ -87,6 +88,69 @@ export function formatError(error: unknown): string {
   return String(error);
 }
 
+export function printSavedConnections(connections: SavedConnection[], configPath: string): void {
+  console.log(chalk.cyan(`\n已保存配置（${connections.length} 条）`));
+  console.log(chalk.dim(`存储位置：${configPath}\n`));
+
+  if (connections.length === 0) {
+    console.log(chalk.dim("  暂无保存的配置。"));
+    return;
+  }
+
+  connections.forEach((connection, index) => {
+    const prefix = chalk.dim(String(index + 1).padStart(3, " "));
+    console.log(
+      `  ${prefix}. ${chalk.bold(connection.name)}  ${chalk.dim(connection.apiType)}  ${connection.baseUrl}`,
+    );
+    console.log(
+      `       key: ${maskApiKey(connection.apiKey)}  模型: ${connection.models.length} 个  更新: ${connection.updatedAt}`,
+    );
+  });
+  console.log();
+}
+
+export function printSavedConnectionDetail(connection: SavedConnection): void {
+  console.log(chalk.green(`\n已选择配置：${connection.name}`));
+  console.log(`  协议：${connection.apiType}`);
+  console.log(`  Base URL：${connection.baseUrl}`);
+  console.log(`  API Key：${maskApiKey(connection.apiKey)}`);
+  console.log(`  已保存模型：${connection.models.length} 个`);
+  if (connection.models.length > 0) {
+    connection.models.slice(0, 8).forEach((model, index) => {
+      console.log(`    ${chalk.dim(String(index + 1).padStart(2, " "))}. ${model.id}`);
+    });
+    if (connection.models.length > 8) {
+      console.log(chalk.dim(`    ... 另有 ${connection.models.length - 8} 个模型`));
+    }
+  }
+  console.log();
+}
+
+export function printConfigSaved(name: string, configPath: string): void {
+  console.log(chalk.green(`\n配置「${name}」已保存。`));
+  console.log(chalk.dim(`存储位置：${configPath}`));
+}
+
+export function printConfigUpdated(name: string): void {
+  console.log(chalk.green(`\n配置「${name}」已更新。`));
+}
+
+export function printConfigDeleted(count: number): void {
+  console.log(chalk.green(`\n已删除 ${count} 条配置。`));
+}
+
+export function printNoSavedConnections(): void {
+  console.log(chalk.yellow("\n暂无保存的配置，请先新增信息。"));
+}
+
+export function printEmptyModelList(): void {
+  console.log("\n获取成功，但接口未返回任何模型，因此无法进行探测。");
+}
+
+export function printUsingSavedModels(count: number): void {
+  console.log(chalk.cyan(`\n将使用保存的 ${count} 个模型进行探测。`));
+}
+
 function printTableHeader(layout: TableLayout): void {
   const rule = chalk.dim(horizontalRule(layout));
   const header = [
@@ -109,7 +173,7 @@ function getDetail(result: ProbeResult): { text: string } {
     case "success":
       return { text: normalizeText(result.content) || "（响应无文本内容）" };
     case "timeout":
-      return { text: normalizeText(result.error) || "请求超过 30 秒" };
+      return { text: normalizeText(result.error) || "请求超过 60 秒" };
     case "failed":
       return { text: normalizeText(result.error) || "未知错误" };
     default:

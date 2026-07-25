@@ -30,3 +30,25 @@ export interface ModelApiAdapter {
   listModels(): Promise<ModelInfo[]>;
   probe(model: ModelInfo, signal: AbortSignal): Promise<ProbeSuccess>;
 }
+
+export type StartMode = "saved" | "fresh";
+
+export type SavedMenuAction = "select" | "add" | "edit" | "delete" | "back";
+
+export type ModelSourceChoice = "saved" | "reselect";
+
+export interface SavedConnection {
+  id: string;
+  name: string;
+  apiType: ApiType;
+  baseUrl: string;
+  apiKey: string;
+  models: ModelInfo[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConfigStore {
+  version: 1;
+  connections: SavedConnection[];
+}

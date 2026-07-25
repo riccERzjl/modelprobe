@@ -1,13 +1,43 @@
 #!/usr/bin/env node
 
 import { createAdapter } from "./adapters/index.js";
-import { chooseApiType, chooseModels, confirmAllModels, readConnection } from "./services/input.js";
+import { addConnection, getConfigPath, listConnections } from "./services/config-store.js";
+import {
+  chooseApiType,
+  chooseModels,
+  chooseStartMode,
+  confirmAllModels,
+  confirmSaveAfterProbe,
+  readConnection,
+  readConnectionName,
+} from "./services/input.js";
 import { probeModels } from "./services/probe-service.js";
-import { printBanner, printFetchError, printModels, printProbeResult, printProbeStart, printSummary, printUsableModels } from "./ui/terminal.js";
+import { runSavedFlow } from "./services/saved-flow.js";
+import {
+  printBanner,
+  printConfigSaved,
+  printEmptyModelList,
+  printFetchError,
+  printModels,
+  printProbeResult,
+  printProbeStart,
+  printSummary,
+  printUsableModels,
+} from "./ui/terminal.js";
 
 async function main(): Promise<void> {
   printBanner();
 
+  const mode = await chooseStartMode();
+  if (mode === "saved") {
+    await runSavedFlow();
+    return;
+  }
+
+  await runFreshFlow();
+}
+
+async function runFreshFlow(): Promise<void> {
   const apiType = await chooseApiType();
   const connection = await readConnection();
   const adapter = createAdapter({ ...connection, apiType });
@@ -23,7 +53,7 @@ async function main(): Promise<void> {
   }
 
   if (models.length === 0) {
-    console.log("\n获取成功，但接口未返回任何模型，因此无法进行探测。");
+    printEmptyModelList();
     return;
   }
 
@@ -35,6 +65,19 @@ async function main(): Promise<void> {
   const results = await probeModels(adapter, selectedModels, printProbeResult);
   printSummary(results);
   printUsableModels(results);
+
+  if (await confirmSaveAfterProbe()) {
+    const existing = await listConnections();
+    const name = await readConnectionName(existing.map((item) => item.name));
+    const saved = await addConnection({
+      name,
+      apiType,
+      baseUrl: connection.baseUrl,
+      apiKey: connection.apiKey,
+      models: selectedModels,
+    });
+    printConfigSaved(saved.name, getConfigPath());
+  }
 }
 
 main().catch((error: unknown) => {

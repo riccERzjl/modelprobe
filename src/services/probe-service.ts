@@ -1,6 +1,6 @@
 import type { ModelApiAdapter, ModelInfo, ProbeResult } from "../types.js";
 
-const PROBE_TIMEOUT_MS = 30_000;
+const PROBE_TIMEOUT_MS = 60_000;
 
 export async function probeModels(
   adapter: ModelApiAdapter,
