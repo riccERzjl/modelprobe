@@ -1,0 +1,30 @@
+{
+  "name": "modelprobe",
+  "version": "0.1.0",
+  "description": "A CLI tool for discovering and probing OpenAI, Anthropic, and Ollama compatible models",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "modelprobe": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.4.1",
+    "chalk": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,19 @@
+# Dependencies and generated output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# npm package archives
+*.tgz
+
+# Local environment files and credentials
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
