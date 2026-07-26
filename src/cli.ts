@@ -1,92 +1,78 @@
 #!/usr/bin/env node
 
-import { createAdapter } from "./adapters/index.js";
-import { addConnection, getConfigPath, listConnections } from "./services/config-store.js";
-import {
-  chooseApiType,
-  chooseModels,
-  chooseProbeConcurrency,
-  chooseStartMode,
-  confirmAllModels,
-  confirmSaveAfterProbe,
-  readConnection,
-  readConnectionName,
-} from "./services/input.js";
-import { discoverModels } from "./services/model-discovery.js";
-import { probeModels } from "./services/probe-service.js";
-import { runSavedFlow } from "./services/saved-flow.js";
-import {
-  printBanner,
-  printConfigSaved,
-  printEmptyModelList,
-  printFetchError,
-  printFetchRetry,
-  printModels,
-  printProbeResult,
-  printProbeRetry,
-  printProbeStart,
-  printSummary,
-  printUsableModels,
-} from "./ui/terminal.js";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseCliArgs, UsageError } from "./cli/args.js";
+import { printUsage, printVersion } from "./cli/help.js";
+import { runInteractiveCommand } from "./commands/interactive.js";
+import { runListCommand } from "./commands/list.js";
+import { runProbeCommand } from "./commands/probe.js";
+import { ConnectionResolveError } from "./core/connection.js";
+import { ModelSelectionError } from "./core/model-selection.js";
 
 async function main(): Promise<void> {
-  printBanner();
-
-  const mode = await chooseStartMode();
-  if (mode === "saved") {
-    await runSavedFlow();
-    return;
+  let parsed;
+  try {
+    parsed = parseCliArgs();
+  } catch (error) {
+    if (error instanceof UsageError) {
+      console.error(`参数错误：${error.message}\n`);
+      printUsage(process.stderr);
+      process.exitCode = 2;
+      return;
+    }
+    throw error;
   }
 
-  await runFreshFlow();
+  if (parsed.global.noColor) {
+    process.env.NO_COLOR = "1";
+  }
+
+  try {
+    switch (parsed.command) {
+      case "help":
+        printUsage();
+        return;
+      case "version":
+        printVersion(readPackageVersion());
+        return;
+      case "interactive": {
+        const code = await runInteractiveCommand();
+        process.exitCode = code;
+        return;
+      }
+      case "list": {
+        const code = await runListCommand(parsed);
+        process.exitCode = code;
+        return;
+      }
+      case "probe": {
+        const code = await runProbeCommand(parsed);
+        process.exitCode = code;
+        return;
+      }
+    }
+  } catch (error) {
+    if (error instanceof UsageError || error instanceof ConnectionResolveError || error instanceof ModelSelectionError) {
+      console.error(error.message);
+      process.exitCode = error instanceof UsageError ? 2 : 1;
+      return;
+    }
+    throw error;
+  }
 }
 
-async function runFreshFlow(): Promise<void> {
-  const apiType = await chooseApiType();
-  const connection = await readConnection();
-  const adapter = createAdapter({ ...connection, apiType });
-
-  console.log("\n正在获取模型...");
-  let models;
+function readPackageVersion(): string {
   try {
-    models = await discoverModels(adapter, {
-      onRetry: (event) => printFetchRetry(event.nextAttempt, event.delayMs, event.error),
-    });
-  } catch (error) {
-    printFetchError(error);
-    process.exitCode = 1;
-    return;
-  }
-
-  if (models.length === 0) {
-    printEmptyModelList();
-    return;
-  }
-
-  printModels(models);
-  const probeAll = await confirmAllModels();
-  const selectedModels = probeAll ? models : await chooseModels(models);
-
-  const concurrency = await chooseProbeConcurrency();
-  printProbeStart(selectedModels.length, concurrency);
-  const results = await probeModels(adapter, selectedModels, printProbeResult, {
-    concurrency,
-    onRetry: (model, event) => printProbeRetry(model, event.nextAttempt, event.delayMs, event.error),
-  });
-  printSummary(results);
-  printUsableModels(results);
-
-  if (await confirmSaveAfterProbe()) {
-    const existing = await listConnections();
-    const name = await readConnectionName(existing.map((item) => item.name));
-    const saved = await addConnection({
-      name,
-      apiType,
-      baseUrl: connection.baseUrl,
-      apiKey: connection.apiKey,
-      models: selectedModels,
-    });
-    printConfigSaved(saved.name, getConfigPath());
+    const here = dirname(fileURLToPath(import.meta.url));
+    // dist/cli.js -> ../package.json; src via tsx -> ../package.json
+    const packagePath = join(here, "..", "package.json");
+    const raw = readFileSync(packagePath, "utf8");
+    const pkg = JSON.parse(raw) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
   }
 }
 

@@ -11,6 +11,7 @@ import {
   printNoSavedConnections,
   printProbeResult,
   printProbeRetry,
+  printLatencyStats,
   printProbeStart,
   printSavedConnectionDetail,
   printSavedConnections,
@@ -234,6 +235,7 @@ async function runProbe(config: ConnectionConfig, models: ModelInfo[]): Promise<
     onRetry: (model, event) => printProbeRetry(model, event.nextAttempt, event.delayMs, event.error),
   });
   printSummary(results);
+  printLatencyStats(results);
   printUsableModels(results);
 }
 

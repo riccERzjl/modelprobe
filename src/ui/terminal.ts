@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { maskApiKey } from "../services/config-store.js";
+import { computeLatencyStats, fastestSuccesses } from "../core/report.js";
 import type { ModelInfo, ProbeResult, SavedConnection } from "../types.js";
 
 const STATUS_WIDTH = 6;
@@ -38,11 +39,17 @@ export function printFetchRetry(attempt: number, delayMs: number, error: unknown
   console.log(chalk.yellow(`↻ 获取模型列表：${formatError(error)}，${seconds}后进行第 ${attempt} 次尝试……`));
 }
 
-export function printProbeStart(modelCount: number, concurrency: number): void {
+export function printProbeStart(
+  modelCount: number,
+  concurrency: number,
+  timeoutMs = 60_000,
+  retries = 1,
+): void {
   const layout = getTableLayout();
+  const timeoutSeconds = Math.round(timeoutMs / 1_000);
   console.log(
     chalk.cyan(
-      `\n开始探测 ${modelCount} 个模型（最大并发 ${concurrency}，单模型最长等待 60 秒，失败最多重试 1 次）...\n`,
+      `\n开始探测 ${modelCount} 个模型（最大并发 ${concurrency}，单模型最长等待 ${timeoutSeconds} 秒，失败最多重试 ${retries} 次）...\n`,
     ),
   );
   printTableHeader(layout);
@@ -101,6 +108,31 @@ export function printSummary(results: ProbeResult[]): void {
   const retried = results.filter((result) => (result.attempts ?? 1) > 1).length;
   console.log(chalk.bold("探测完成：") + `共 ${results.length} 个；${chalk.green(`成功 ${success}`)}，${chalk.red(`失败 ${failed}`)}，${chalk.yellow(`超时 ${timeout}`)}。`);
   console.log(chalk.dim(`总请求尝试次数 ${totalAttempts}；发生重试的模型 ${retried} 个。`));
+}
+
+export function printLatencyStats(results: ProbeResult[]): void {
+  const stats = computeLatencyStats(results);
+  if (!stats) {
+    console.log(chalk.dim("延迟统计（仅成功）：无可用样本。"));
+    return;
+  }
+
+  console.log(
+    chalk.dim(
+      `延迟统计（仅成功）：min ${stats.min} ms / avg ${stats.avg} ms / p50 ${stats.p50} ms / p95 ${stats.p95} ms`,
+    ),
+  );
+
+  const fastest = fastestSuccesses(results, 3);
+  if (fastest.length === 0) return;
+  console.log(chalk.dim(`最快 ${fastest.length} 个：`));
+  fastest.forEach((item, index) => {
+    console.log(chalk.dim(`  ${index + 1}. ${item.id}   ${item.durationMs} ms`));
+  });
+}
+
+export function printOutputSaved(path: string): void {
+  console.log(chalk.dim(`\n结果已写入：${path}`));
 }
 
 export function printUsableModels(results: ProbeResult[]): void {
@@ -185,6 +217,7 @@ export function printEmptyModelList(): void {
 export function printUsingSavedModels(count: number): void {
   console.log(chalk.cyan(`\n将使用保存的 ${count} 个模型进行探测。`));
 }
+
 
 function formatRetryDelay(delayMs: number): string {
   const seconds = (delayMs / 1_000).toFixed(delayMs < 1_000 ? 1 : 0);
