@@ -1,12 +1,46 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { homedir, platform as getPlatform } from "node:os";
+import { dirname, posix, win32, type PlatformPath } from "node:path";
 import type { ApiType, ConfigStore, ModelInfo, SavedConnection } from "../types.js";
 
 const STORE_VERSION = 1 as const;
-const CONFIG_DIR = join(homedir(), ".modelprobe");
-const CONFIG_FILE = join(CONFIG_DIR, "connections.json");
+const APP_NAME = "modelprobe";
+const CONFIG_FILENAME = "connections.json";
+const CONFIG_FILE = resolveConfigPath();
+const LEGACY_CONFIG_FILE = resolveLegacyConfigPath();
+
+export interface ConfigPathOptions {
+  /** Defaults to the platform on which the CLI is currently running. */
+  platform?: NodeJS.Platform;
+  /** Defaults to process.env. Supplied explicitly by tests and embedding callers. */
+  env?: NodeJS.ProcessEnv;
+  /** Defaults to the current user's home directory. */
+  homeDir?: string;
+}
+
+/**
+ * Return the operating system's conventional per-user config location:
+ * - Linux: $XDG_CONFIG_HOME/modelprobe, then ~/.config/modelprobe
+ * - macOS: ~/Library/Application Support/modelprobe
+ * - Windows: %APPDATA%\\modelprobe, then ~/AppData/Roaming/modelprobe
+ */
+export function resolveConfigPath(options: ConfigPathOptions = {}): string {
+  const platform = options.platform ?? getPlatform();
+  const env = options.env ?? process.env;
+  const homeDir = options.homeDir ?? homedir();
+  const path = platform === "win32" ? win32 : posix;
+  const configRoot = resolveConfigRoot(platform, env, homeDir, path);
+  return path.join(configRoot, APP_NAME, CONFIG_FILENAME);
+}
+
+/** The configuration location used by ModelProbe before cross-platform support. */
+export function resolveLegacyConfigPath(options: ConfigPathOptions = {}): string {
+  const platform = options.platform ?? getPlatform();
+  const homeDir = options.homeDir ?? homedir();
+  const path = platform === "win32" ? win32 : posix;
+  return path.join(homeDir, `.${APP_NAME}`, CONFIG_FILENAME);
+}
 
 export function getConfigPath(): string {
   return CONFIG_FILE;
@@ -14,18 +48,26 @@ export function getConfigPath(): string {
 
 export async function loadStore(): Promise<ConfigStore> {
   try {
-    const raw = await readFile(CONFIG_FILE, "utf8");
-    return parseStore(raw);
+    return await readStoreFile(CONFIG_FILE);
   } catch (error) {
-    if (isNotFoundError(error)) {
-      return emptyStore();
-    }
+    if (!isNotFoundError(error)) throw error;
+  }
+
+  if (LEGACY_CONFIG_FILE === CONFIG_FILE) return emptyStore();
+
+  try {
+    const legacyStore = await readStoreFile(LEGACY_CONFIG_FILE);
+    await saveStore(legacyStore);
+    return legacyStore;
+  } catch (error) {
+    if (isNotFoundError(error)) return emptyStore();
     throw error;
   }
 }
 
 export async function saveStore(store: ConfigStore): Promise<void> {
-  await mkdir(CONFIG_DIR, { recursive: true });
+  const configDir = dirname(CONFIG_FILE);
+  await mkdir(configDir, { recursive: true });
   const payload = `${JSON.stringify(store, null, 2)}\n`;
   const tempFile = `${CONFIG_FILE}.${process.pid}.tmp`;
   await writeFile(tempFile, payload, "utf8");
@@ -124,47 +166,81 @@ export function maskApiKey(apiKey: string): string {
   return `${value.slice(0, 3)}***${value.slice(-4)}`;
 }
 
+function resolveConfigRoot(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  homeDir: string,
+  path: PlatformPath,
+): string {
+  switch (platform) {
+    case "win32": {
+      const appData = nonEmpty(env.APPDATA);
+      return appData && path.isAbsolute(appData)
+        ? appData
+        : path.join(homeDir, "AppData", "Roaming");
+    }
+    case "darwin":
+      return path.join(homeDir, "Library", "Application Support");
+    default: {
+      const xdgConfigHome = nonEmpty(env.XDG_CONFIG_HOME);
+      return xdgConfigHome && path.isAbsolute(xdgConfigHome)
+        ? xdgConfigHome
+        : path.join(homeDir, ".config");
+    }
+  }
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized || undefined;
+}
+
+async function readStoreFile(configPath: string): Promise<ConfigStore> {
+  const raw = await readFile(configPath, "utf8");
+  return parseStore(raw, configPath);
+}
+
 function emptyStore(): ConfigStore {
   return { version: STORE_VERSION, connections: [] };
 }
 
-function parseStore(raw: string): ConfigStore {
+function parseStore(raw: string, configPath: string): ConfigStore {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(`配置文件不是有效 JSON：${CONFIG_FILE}`);
+    throw new Error(`配置文件不是有效 JSON：${configPath}`);
   }
 
   if (!parsed || typeof parsed !== "object") {
-    throw new Error(`配置文件格式无效：${CONFIG_FILE}`);
+    throw new Error(`配置文件格式无效：${configPath}`);
   }
 
   const record = parsed as Record<string, unknown>;
   if (record.version !== STORE_VERSION) {
-    throw new Error(`不支持的配置文件版本（期望 ${STORE_VERSION}）：${CONFIG_FILE}`);
+    throw new Error(`不支持的配置文件版本（期望 ${STORE_VERSION}）：${configPath}`);
   }
   if (!Array.isArray(record.connections)) {
-    throw new Error(`配置文件缺少 connections 数组：${CONFIG_FILE}`);
+    throw new Error(`配置文件缺少 connections 数组：${configPath}`);
   }
 
-  const connections = record.connections.map((item, index) => parseConnection(item, index));
+  const connections = record.connections.map((item, index) => parseConnection(item, index, configPath));
   return { version: STORE_VERSION, connections };
 }
 
-function parseConnection(value: unknown, index: number): SavedConnection {
+function parseConnection(value: unknown, index: number, configPath: string): SavedConnection {
   if (!value || typeof value !== "object") {
-    throw new Error(`配置项 #${index + 1} 格式无效：${CONFIG_FILE}`);
+    throw new Error(`配置项 #${index + 1} 格式无效：${configPath}`);
   }
 
   const record = value as Record<string, unknown>;
-  const id = asNonEmptyString(record.id, `配置项 #${index + 1} 缺少 id`);
-  const name = asNonEmptyString(record.name, `配置项 #${index + 1} 缺少 name`);
-  const apiType = asApiType(record.apiType, `配置项 #${index + 1} 的 apiType 无效`);
-  const baseUrl = asNonEmptyString(record.baseUrl, `配置项 #${index + 1} 缺少 baseUrl`);
+  const id = asNonEmptyString(record.id, `配置项 #${index + 1} 缺少 id`, configPath);
+  const name = asNonEmptyString(record.name, `配置项 #${index + 1} 缺少 name`, configPath);
+  const apiType = asApiType(record.apiType, `配置项 #${index + 1} 的 apiType 无效`, configPath);
+  const baseUrl = asNonEmptyString(record.baseUrl, `配置项 #${index + 1} 缺少 baseUrl`, configPath);
   const apiKey = typeof record.apiKey === "string" ? record.apiKey : "";
-  const createdAt = asNonEmptyString(record.createdAt, `配置项 #${index + 1} 缺少 createdAt`);
-  const updatedAt = asNonEmptyString(record.updatedAt, `配置项 #${index + 1} 缺少 updatedAt`);
+  const createdAt = asNonEmptyString(record.createdAt, `配置项 #${index + 1} 缺少 createdAt`, configPath);
+  const updatedAt = asNonEmptyString(record.updatedAt, `配置项 #${index + 1} 缺少 updatedAt`, configPath);
   const models = Array.isArray(record.models)
     ? record.models
         .filter((model): model is { id: string } => {
@@ -176,18 +252,18 @@ function parseConnection(value: unknown, index: number): SavedConnection {
   return { id, name, apiType, baseUrl, apiKey, models, createdAt, updatedAt };
 }
 
-function asNonEmptyString(value: unknown, message: string): string {
+function asNonEmptyString(value: unknown, message: string, configPath: string): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${message}：${CONFIG_FILE}`);
+    throw new Error(`${message}：${configPath}`);
   }
   return value.trim();
 }
 
-function asApiType(value: unknown, message: string): ApiType {
+function asApiType(value: unknown, message: string, configPath: string): ApiType {
   if (value === "openai" || value === "anthropic" || value === "ollama") {
     return value;
   }
-  throw new Error(`${message}：${CONFIG_FILE}`);
+  throw new Error(`${message}：${configPath}`);
 }
 
 function assertUniqueName(store: ConfigStore, name: string, excludeId?: string): void {

@@ -36,13 +36,15 @@ npm start
 3. **修改现有信息**：编辑名称、协议、URL、Key，并可选择是否重新拉取模型列表。
 4. **删除信息**：多选删除已保存配置。
 
-配置文件路径：
+配置文件按操作系统保存到用户级配置目录：
 
-```text
-~/.modelprobe/connections.json
-```
+| 系统 | 默认位置 |
+| --- | --- |
+| Linux | `$XDG_CONFIG_HOME/modelprobe/connections.json`；未设置时为 `~/.config/modelprobe/connections.json` |
+| macOS | `~/Library/Application Support/modelprobe/connections.json` |
+| Windows | `%APPDATA%\\modelprobe\\connections.json`；未设置 `APPDATA` 时为 `%USERPROFILE%\\AppData\\Roaming\\modelprobe\\connections.json` |
 
-每条配置保存：协议类型、Base URL、API Key、模型列表。API Key 以明文写入本地配置文件（文件权限尽量设为 `0600`），终端展示时会脱敏。
+升级后，工具会在新位置没有配置时自动读取原来的 `~/.modelprobe/connections.json`（Windows 为 `%USERPROFILE%\\.modelprobe\\connections.json`），并写入新位置；原文件会保留。API Key 以明文写入本地配置文件；在支持 POSIX 文件权限的系统上，工具会尽量将文件权限设为 `0600`，终端展示时会脱敏。
 
 ### 从头开始输入
 
