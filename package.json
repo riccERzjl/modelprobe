@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
     "start": "node dist/cli.js",
     "test": "tsx --test src/**/*.test.ts"
   },
