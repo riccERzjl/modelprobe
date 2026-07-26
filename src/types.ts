@@ -22,12 +22,14 @@ export interface ProbeResult {
   model: ModelInfo;
   status: ProbeStatus;
   durationMs?: number;
+  /** Number of HTTP attempts, including the initial request. */
+  attempts?: number;
   content?: string;
   error?: string;
 }
 
 export interface ModelApiAdapter {
-  listModels(): Promise<ModelInfo[]>;
+  listModels(signal?: AbortSignal): Promise<ModelInfo[]>;
   probe(model: ModelInfo, signal: AbortSignal): Promise<ProbeSuccess>;
 }
 

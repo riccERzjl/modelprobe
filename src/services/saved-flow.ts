@@ -6,9 +6,11 @@ import {
   printConfigUpdated,
   printEmptyModelList,
   printFetchError,
+  printFetchRetry,
   printModels,
   printNoSavedConnections,
   printProbeResult,
+  printProbeRetry,
   printProbeStart,
   printSavedConnectionDetail,
   printSavedConnections,
@@ -28,6 +30,7 @@ import {
   chooseConnectionsToDelete,
   chooseModelSource,
   chooseModels,
+  chooseProbeConcurrency,
   chooseSavedConnection,
   chooseSavedMenuAction,
   confirmAllModels,
@@ -38,6 +41,7 @@ import {
   readConnection,
   readConnectionName,
 } from "./input.js";
+import { discoverModels } from "./model-discovery.js";
 import { probeModels } from "./probe-service.js";
 
 export async function runSavedFlow(): Promise<void> {
@@ -206,7 +210,9 @@ async function listRemoteModels(config: ConnectionConfig): Promise<ModelInfo[] |
   const adapter = createAdapter(config);
   console.log("\n正在获取模型...");
   try {
-    return await adapter.listModels();
+    return await discoverModels(adapter, {
+      onRetry: (event) => printFetchRetry(event.nextAttempt, event.delayMs, event.error),
+    });
   } catch (error) {
     printFetchError(error);
     process.exitCode = 1;
@@ -221,8 +227,12 @@ async function runProbe(config: ConnectionConfig, models: ModelInfo[]): Promise<
   }
 
   const adapter = createAdapter(config);
-  printProbeStart(models.length);
-  const results = await probeModels(adapter, models, printProbeResult);
+  const concurrency = await chooseProbeConcurrency();
+  printProbeStart(models.length, concurrency);
+  const results = await probeModels(adapter, models, printProbeResult, {
+    concurrency,
+    onRetry: (model, event) => printProbeRetry(model, event.nextAttempt, event.delayMs, event.error),
+  });
   printSummary(results);
   printUsableModels(results);
 }

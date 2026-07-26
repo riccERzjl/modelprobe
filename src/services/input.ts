@@ -1,4 +1,5 @@
 import { checkbox, confirm, password, select, input } from "@inquirer/prompts";
+import { DEFAULT_PROBE_CONCURRENCY, MAX_PROBE_CONCURRENCY } from "./probe-service.js";
 import type {
   ApiType,
   ConnectionConfig,
@@ -145,6 +146,22 @@ export async function chooseModels(models: ModelInfo[]): Promise<ModelInfo[]> {
 
   const selected = new Set(selectedIds);
   return models.filter((model) => selected.has(model.id));
+}
+
+export async function chooseProbeConcurrency(): Promise<number> {
+  return input({
+    message: `最大并发探测数（1-${MAX_PROBE_CONCURRENCY}）：`,
+    default: String(DEFAULT_PROBE_CONCURRENCY),
+    validate: (value) => {
+      const normalized = value.trim();
+      if (!/^\d+$/.test(normalized)) return `请输入 1 到 ${MAX_PROBE_CONCURRENCY} 之间的整数。`;
+      const concurrency = Number(normalized);
+      if (concurrency < 1 || concurrency > MAX_PROBE_CONCURRENCY) {
+        return `请输入 1 到 ${MAX_PROBE_CONCURRENCY} 之间的整数。`;
+      }
+      return true;
+    },
+  }).then((value) => Number(value.trim()));
 }
 
 export async function chooseModelSource(savedModelCount: number): Promise<ModelSourceChoice> {

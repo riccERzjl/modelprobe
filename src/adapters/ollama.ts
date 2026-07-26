@@ -13,11 +13,11 @@ interface OllamaChatResponse {
 export class OllamaAdapter implements ModelApiAdapter {
   constructor(private readonly config: ConnectionConfig) {}
 
-  async listModels(): Promise<ModelInfo[]> {
+  async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
     const url = createEndpoint(this.config.baseUrl, "api/tags");
     const response = await requestJson<OllamaTagsResponse>(url, {
       headers: authorizationHeaders(this.config.apiKey),
-    });
+    }, signal);
 
     if (!Array.isArray(response.models)) throw new Error("响应格式不符合 Ollama tags API：缺少 models 数组。");
     return response.models

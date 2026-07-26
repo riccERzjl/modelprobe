@@ -5,12 +5,14 @@ import { addConnection, getConfigPath, listConnections } from "./services/config
 import {
   chooseApiType,
   chooseModels,
+  chooseProbeConcurrency,
   chooseStartMode,
   confirmAllModels,
   confirmSaveAfterProbe,
   readConnection,
   readConnectionName,
 } from "./services/input.js";
+import { discoverModels } from "./services/model-discovery.js";
 import { probeModels } from "./services/probe-service.js";
 import { runSavedFlow } from "./services/saved-flow.js";
 import {
@@ -18,8 +20,10 @@ import {
   printConfigSaved,
   printEmptyModelList,
   printFetchError,
+  printFetchRetry,
   printModels,
   printProbeResult,
+  printProbeRetry,
   printProbeStart,
   printSummary,
   printUsableModels,
@@ -45,7 +49,9 @@ async function runFreshFlow(): Promise<void> {
   console.log("\n正在获取模型...");
   let models;
   try {
-    models = await adapter.listModels();
+    models = await discoverModels(adapter, {
+      onRetry: (event) => printFetchRetry(event.nextAttempt, event.delayMs, event.error),
+    });
   } catch (error) {
     printFetchError(error);
     process.exitCode = 1;
@@ -61,8 +67,12 @@ async function runFreshFlow(): Promise<void> {
   const probeAll = await confirmAllModels();
   const selectedModels = probeAll ? models : await chooseModels(models);
 
-  printProbeStart(selectedModels.length);
-  const results = await probeModels(adapter, selectedModels, printProbeResult);
+  const concurrency = await chooseProbeConcurrency();
+  printProbeStart(selectedModels.length, concurrency);
+  const results = await probeModels(adapter, selectedModels, printProbeResult, {
+    concurrency,
+    onRetry: (model, event) => printProbeRetry(model, event.nextAttempt, event.delayMs, event.error),
+  });
   printSummary(results);
   printUsableModels(results);
 

@@ -13,11 +13,11 @@ interface OpenAiChatResponse {
 export class OpenAiAdapter implements ModelApiAdapter {
   constructor(private readonly config: ConnectionConfig) {}
 
-  async listModels(): Promise<ModelInfo[]> {
+  async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
     const url = createEndpoint(this.config.baseUrl, "models", "v1");
     const response = await requestJson<OpenAiModelsResponse>(url, {
       headers: authorizationHeaders(this.config.apiKey),
-    });
+    }, signal);
 
     if (!Array.isArray(response.data)) throw new Error("响应格式不符合 OpenAI models API：缺少 data 数组。");
     return response.data

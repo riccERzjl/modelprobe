@@ -33,10 +33,42 @@ export function printFetchError(error: unknown): void {
   console.error(chalk.red(formatError(error)));
 }
 
-export function printProbeStart(modelCount: number): void {
+export function printFetchRetry(attempt: number, delayMs: number, error: unknown): void {
+  const seconds = formatRetryDelay(delayMs);
+  console.log(chalk.yellow(`↻ 获取模型列表：${formatError(error)}，${seconds}后进行第 ${attempt} 次尝试……`));
+}
+
+export function printProbeStart(modelCount: number, concurrency: number): void {
   const layout = getTableLayout();
-  console.log(chalk.cyan(`\n开始并行探测 ${modelCount} 个模型（单模型最长等待 60 秒）...\n`));
+  console.log(
+    chalk.cyan(
+      `\n开始探测 ${modelCount} 个模型（最大并发 ${concurrency}，单模型最长等待 60 秒，失败最多重试 1 次）...\n`,
+    ),
+  );
   printTableHeader(layout);
+}
+
+export function printProbeRetry(model: ModelInfo, attempt: number, delayMs: number, error: unknown): void {
+  const layout = getTableLayout();
+  const detailLines = wrapText(
+    `${formatError(error)}，${formatRetryDelay(delayMs)}后进行第 ${attempt} 次尝试……`,
+    layout.detailWidth,
+  );
+  const firstLine = buildTableRow(
+    chalk.yellow(column("[重试]", STATUS_WIDTH)),
+    column(model.id, layout.modelWidth),
+    chalk.dim(column("-", DURATION_WIDTH, "right")),
+    chalk.yellow(detailLines[0] ?? ""),
+  );
+  const continuationPrefix = buildTableRow(
+    " ".repeat(STATUS_WIDTH),
+    " ".repeat(layout.modelWidth),
+    " ".repeat(DURATION_WIDTH),
+    "",
+  );
+  const continuationLines = detailLines.slice(1).map((line) => `${continuationPrefix}${chalk.yellow(line)}`);
+
+  console.log([firstLine, ...continuationLines].join("\n"));
 }
 
 export function printProbeResult(result: ProbeResult): void {
@@ -65,7 +97,10 @@ export function printSummary(results: ProbeResult[]): void {
   const failed = results.filter((result) => result.status === "failed").length;
   const timeout = results.filter((result) => result.status === "timeout").length;
   console.log(`\n${chalk.dim(horizontalRule(getTableLayout()))}`);
+  const totalAttempts = results.reduce((total, result) => total + (result.attempts ?? 1), 0);
+  const retried = results.filter((result) => (result.attempts ?? 1) > 1).length;
   console.log(chalk.bold("探测完成：") + `共 ${results.length} 个；${chalk.green(`成功 ${success}`)}，${chalk.red(`失败 ${failed}`)}，${chalk.yellow(`超时 ${timeout}`)}。`);
+  console.log(chalk.dim(`总请求尝试次数 ${totalAttempts}；发生重试的模型 ${retried} 个。`));
 }
 
 export function printUsableModels(results: ProbeResult[]): void {
@@ -151,6 +186,11 @@ export function printUsingSavedModels(count: number): void {
   console.log(chalk.cyan(`\n将使用保存的 ${count} 个模型进行探测。`));
 }
 
+function formatRetryDelay(delayMs: number): string {
+  const seconds = (delayMs / 1_000).toFixed(delayMs < 1_000 ? 1 : 0);
+  return `${seconds} 秒`;
+}
+
 function printTableHeader(layout: TableLayout): void {
   const rule = chalk.dim(horizontalRule(layout));
   const header = [
@@ -169,13 +209,15 @@ function buildTableRow(status: string, model: string, duration: string, detail: 
 }
 
 function getDetail(result: ProbeResult): { text: string } {
+  const attempts = result.attempts && result.attempts > 1 ? `（第 ${result.attempts} 次成功）` : "";
+  const errorAttempts = result.attempts && result.attempts > 1 ? `（已尝试 ${result.attempts} 次）` : "";
   switch (result.status) {
     case "success":
-      return { text: normalizeText(result.content) || "（响应无文本内容）" };
+      return { text: `${normalizeText(result.content) || "（响应无文本内容）"}${attempts}` };
     case "timeout":
-      return { text: normalizeText(result.error) || "请求超过 60 秒" };
+      return { text: `${normalizeText(result.error) || "请求超过 60 秒"}${errorAttempts}` };
     case "failed":
-      return { text: normalizeText(result.error) || "未知错误" };
+      return { text: `${normalizeText(result.error) || "未知错误"}${errorAttempts}` };
     default:
       return { text: "" };
   }

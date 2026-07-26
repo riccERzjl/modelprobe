@@ -13,11 +13,11 @@ interface AnthropicMessageResponse {
 export class AnthropicAdapter implements ModelApiAdapter {
   constructor(private readonly config: ConnectionConfig) {}
 
-  async listModels(): Promise<ModelInfo[]> {
+  async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
     const url = createEndpoint(this.config.baseUrl, "models", "v1");
     const response = await requestJson<AnthropicModelsResponse>(url, {
       headers: this.headers(),
-    });
+    }, signal);
 
     if (!Array.isArray(response.data)) throw new Error("响应格式不符合 Anthropic models API：缺少 data 数组。");
     return response.data
